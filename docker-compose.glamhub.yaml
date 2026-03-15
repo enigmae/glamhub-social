@@ -1,0 +1,121 @@
+# GlamHub-specific Postiz deployment
+# Uses shared infrastructure where possible
+# Run: docker compose -f docker-compose.glamhub.yaml up -d
+
+services:
+  postiz:
+    image: ghcr.io/gitroomhq/postiz-app:latest
+    container_name: glamhub-social
+    restart: always
+    environment:
+      MAIN_URL: '${POSTIZ_URL:-http://localhost:4007}'
+      FRONTEND_URL: '${POSTIZ_URL:-http://localhost:4007}'
+      NEXT_PUBLIC_BACKEND_URL: '${POSTIZ_URL:-http://localhost:4007}/api'
+      JWT_SECRET: '${POSTIZ_JWT_SECRET:-glamhub-social-jwt-secret-change-me}'
+      DATABASE_URL: 'postgresql://postiz:${POSTIZ_DB_PASSWORD:-postiz123}@postiz-postgres:5432/postiz'
+      REDIS_URL: 'redis://postiz-redis:6379'
+      BACKEND_INTERNAL_URL: 'http://localhost:3000'
+      IS_GENERAL: 'true'
+      DISABLE_REGISTRATION: 'true'  # Single-user for GlamHub admin
+
+      # Storage
+      STORAGE_PROVIDER: 'local'
+      UPLOAD_DIRECTORY: '/uploads'
+      NEXT_PUBLIC_UPLOAD_DIRECTORY: '/uploads'
+
+      # ─── Social Platform API Keys ─────────────────
+      # Get these from each platform's developer portal
+      X_API_KEY: '${X_API_KEY:-}'
+      X_API_SECRET: '${X_API_SECRET:-}'
+      FACEBOOK_APP_ID: '${FACEBOOK_APP_ID:-}'
+      FACEBOOK_APP_SECRET: '${FACEBOOK_APP_SECRET:-}'
+      LINKEDIN_CLIENT_ID: '${LINKEDIN_CLIENT_ID:-}'
+      LINKEDIN_CLIENT_SECRET: '${LINKEDIN_CLIENT_SECRET:-}'
+      YOUTUBE_CLIENT_ID: '${YOUTUBE_CLIENT_ID:-}'
+      YOUTUBE_CLIENT_SECRET: '${YOUTUBE_CLIENT_SECRET:-}'
+      TIKTOK_CLIENT_ID: '${TIKTOK_CLIENT_ID:-}'
+      TIKTOK_CLIENT_SECRET: '${TIKTOK_CLIENT_SECRET:-}'
+      PINTEREST_CLIENT_ID: '${PINTEREST_CLIENT_ID:-}'
+      PINTEREST_CLIENT_SECRET: '${PINTEREST_CLIENT_SECRET:-}'
+      THREADS_APP_ID: '${THREADS_APP_ID:-}'
+      THREADS_APP_SECRET: '${THREADS_APP_SECRET:-}'
+
+      # Use Claude instead of OpenAI for AI features
+      OPENAI_API_KEY: '${ANTHROPIC_API_KEY:-}'
+
+      # Temporal (required by Postiz for scheduling)
+      TEMPORAL_ADDRESS: "temporal:7233"
+
+      NX_ADD_PLUGINS: false
+      API_LIMIT: 100  # Higher limit for admin use
+
+    volumes:
+      - postiz-uploads:/uploads/
+    ports:
+      - "4007:5000"
+    depends_on:
+      postiz-postgres:
+        condition: service_healthy
+      postiz-redis:
+        condition: service_healthy
+
+  postiz-postgres:
+    image: postgres:17-alpine
+    container_name: glamhub-social-postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${POSTIZ_DB_PASSWORD:-postiz123}
+      POSTGRES_USER: postiz
+      POSTGRES_DB: postiz
+    volumes:
+      - postiz-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U postiz -d postiz
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  postiz-redis:
+    image: redis:7-alpine
+    container_name: glamhub-social-redis
+    restart: always
+    healthcheck:
+      test: redis-cli ping
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - postiz-redis-data:/data
+
+  # Temporal (Postiz requires this for scheduling)
+  temporal:
+    image: temporalio/auto-setup:1.28.1
+    container_name: glamhub-social-temporal
+    ports:
+      - '7233:7233'
+    depends_on:
+      - temporal-postgres
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig
+
+  temporal-postgres:
+    image: postgres:16-alpine
+    container_name: glamhub-social-temporal-pg
+    environment:
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_USER: temporal
+    volumes:
+      - temporal-pg-data:/var/lib/postgresql/data
+
+volumes:
+  postiz-uploads:
+  postiz-pg-data:
+  postiz-redis-data:
+  temporal-pg-data:
